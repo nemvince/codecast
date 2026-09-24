@@ -16,7 +16,7 @@
     "id-length": [
       "error",
       {
-        "exceptions": ["_", "z", "T"]
+        "exceptions": ["_", "c", "z", "T"]
       }
     ],
     "new-cap": [
@@ -29,6 +29,7 @@
   "env": {
     "builtin": true
   },
+  "ignorePatterns": ["src/components/ui"],
   "overrides": [
     {
       "files": ["src/components/**", "src/routes/**"],

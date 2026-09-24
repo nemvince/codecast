@@ -21,7 +21,12 @@ const createEnv = <Schema extends z.ZodType>({
 
 export const env = createEnv({
   schema: z.object({
-    DATABASE_URL: z.url()
+    AUTH_SECRET: z.string(),
+    BASE_URL: z.url(),
+    DATABASE_URL: z.url(),
+    GITHUB_CLIENT_ID: z.string(),
+    GITHUB_CLIENT_SECRET: z.string(),
+    PISTON_URL: z.url().default('http://localhost:2000')
   }),
   source: Bun.env
 })

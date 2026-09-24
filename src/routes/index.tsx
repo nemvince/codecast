@@ -1,76 +1,115 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { ORPCError } from '@orpc/client'
+import { ArrowRightIcon, BroadcastIcon, ClockIcon } from '@phosphor-icons/react'
+import { useMutation } from '@tanstack/react-query'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle
+} from '@/components/ui/item'
+import { Spinner } from '@/components/ui/spinner'
+import { formatClock } from '@/lib/format'
+import {
+  addRecentCast,
+  markNewCast,
+  readRecentCasts,
+  type RecentCast,
+  writeEditKey
+} from '@/lib/storage'
+import { client } from '@/orpc/client'
+
+const HomePage = () => {
+  const navigate = useNavigate()
+  const [recent, setRecent] = useState<RecentCast[]>([])
+
+  // Read after mount: the recent list lives in localStorage, which does not exist on the server.
+  useEffect(() => {
+    setRecent(readRecentCasts())
+  }, [])
+
+  const createMutation = useMutation({
+    mutationFn: () => client.createCast({}),
+    onSuccess: (created) => {
+      writeEditKey(created.slug, created.editKey)
+      addRecentCast({ createdAt: new Date().toISOString(), slug: created.slug })
+      markNewCast(created.slug)
+      void navigate({ params: { slug: created.slug }, to: '/c/$slug' })
+    }
+  })
+
+  return (
+    <main className='mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 pt-10 pb-16'>
+      <section className='flex flex-col items-start gap-3'>
+        <h1 className='m-0 text-lg font-semibold tracking-tight'>Run code together, live</h1>
+        <p className='text-muted-foreground m-0 text-xs/relaxed'>
+          Start a cast and share its link or QR code. Everyone watching sees your code as you type
+          it, and can run a copy of their own alongside — theirs stays on their device.
+        </p>
+        <Button
+          className='mt-1'
+          disabled={createMutation.isPending}
+          onClick={() => createMutation.mutate()}
+          size='lg'
+        >
+          {createMutation.isPending ? <Spinner /> : <BroadcastIcon />}
+          {createMutation.isPending ? 'Starting…' : 'Start a new cast'}
+        </Button>
+
+        {createMutation.error ? (
+          <Alert variant='destructive'>
+            <AlertTitle>The cast could not be created</AlertTitle>
+            <AlertDescription>
+              {createMutation.error instanceof ORPCError
+                ? createMutation.error.message
+                : 'Please try again.'}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </section>
+
+      <section className='flex flex-col gap-3'>
+        <h2 className='text-muted-foreground m-0 text-xs font-medium'>Recent casts</h2>
+        {recent.length === 0 ? (
+          <Empty className='border'>
+            <EmptyHeader>
+              <EmptyMedia variant='icon'>
+                <ClockIcon />
+              </EmptyMedia>
+              <EmptyTitle>No casts yet</EmptyTitle>
+              <EmptyDescription>Casts you start in this browser show up here.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <ItemGroup className='gap-2'>
+            {recent.map((cast) => (
+              <Item
+                key={cast.slug}
+                render={<Link params={{ slug: cast.slug }} to='/c/$slug' />}
+                variant='outline'
+              >
+                <ItemContent>
+                  <ItemTitle className='font-mono'>{cast.slug}</ItemTitle>
+                  <ItemDescription>Started {formatClock(cast.createdAt)}</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <ArrowRightIcon className='text-muted-foreground' />
+                </ItemActions>
+              </Item>
+            ))}
+          </ItemGroup>
+        )}
+      </section>
+    </main>
+  )
+}
 
 export const Route = createFileRoute('/')({
-  component: () => {
-    return (
-      <main className='page-wrap px-4 pt-14 pb-8'>
-        <section className='island-shell rise-in relative overflow-hidden rounded-4xl px-6 py-10 sm:px-10 sm:py-14'>
-          <div className='pointer-events-none absolute -top-24 -left-20 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(79,184,178,0.32),transparent_66%)]' />
-          <div className='pointer-events-none absolute -right-20 -bottom-20 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(47,106,74,0.18),transparent_66%)]' />
-          <p className='island-kicker mb-3'>TanStack Start Base Template</p>
-          <h1 className='display-title mb-5 max-w-3xl text-4xl leading-[1.02] font-bold tracking-tight text-(--sea-ink) sm:text-6xl'>
-            Start simple, ship quickly.
-          </h1>
-          <p className='mb-8 max-w-2xl text-base text-(--sea-ink-soft) sm:text-lg'>
-            This base starter intentionally keeps things light: two routes, clean structure, and the
-            essentials you need to build from scratch.
-          </p>
-          <div className='flex flex-wrap gap-3'>
-            <a
-              href='/about'
-              className='rounded-full border border-[rgba(50,143,151,0.3)] bg-[rgba(79,184,178,0.14)] px-5 py-2.5 text-sm font-semibold text-(--lagoon-deep) no-underline transition hover:-translate-y-0.5 hover:bg-[rgba(79,184,178,0.24)]'
-            >
-              About This Starter
-            </a>
-            <a
-              href='https://tanstack.com/router'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='rounded-full border border-[rgba(23,58,64,0.2)] bg-white/50 px-5 py-2.5 text-sm font-semibold text-(--sea-ink) no-underline transition hover:-translate-y-0.5 hover:border-[rgba(23,58,64,0.35)]'
-            >
-              Router Guide
-            </a>
-          </div>
-        </section>
-
-        <section className='mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
-          {[
-            ['Type-Safe Routing', 'Routes and links stay in sync across every page.'],
-            ['Server Functions', 'Call server code from your UI without creating API boilerplate.'],
-            [
-              'Streaming by Default',
-              'Ship progressively rendered responses for faster experiences.'
-            ],
-            ['Tailwind Native', 'Design quickly with utility-first styling and reusable tokens.']
-          ].map(([title, desc], index) => (
-            <article
-              key={title}
-              className='island-shell feature-card rise-in rounded-2xl p-5'
-              style={{ animationDelay: `${index * 90 + 80}ms` }}
-            >
-              <h2 className='mb-2 text-base font-semibold text-(--sea-ink)'>{title}</h2>
-              <p className='m-0 text-sm text-(--sea-ink-soft)'>{desc}</p>
-            </article>
-          ))}
-        </section>
-
-        <section className='island-shell mt-8 rounded-2xl p-6'>
-          <p className='island-kicker mb-2'>Quick Start</p>
-          <ul className='m-0 list-disc space-y-2 pl-5 text-sm text-(--sea-ink-soft)'>
-            <li>
-              Edit <code>src/routes/index.tsx</code> to customize the home page.
-            </li>
-            <li>
-              Update <code>src/components/Header.tsx</code> and{' '}
-              <code>src/components/Footer.tsx</code> for brand links.
-            </li>
-            <li>
-              Add routes in <code>src/routes</code> and tweak visual tokens in{' '}
-              <code>src/styles.css</code>.
-            </li>
-          </ul>
-        </section>
-      </main>
-    )
-  }
+  component: HomePage
 })

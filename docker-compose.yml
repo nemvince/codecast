@@ -1,0 +1,41 @@
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: codecast-piston
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - '2000:2000'
+    volumes:
+      - piston-packages:/piston/packages
+    tmpfs:
+      - /tmp:exec
+    environment:
+      PISTON_OUTPUT_MAX_SIZE: '65536'
+      PISTON_RUN_TIMEOUT: '5000'
+      PISTON_RUN_CPU_TIME: '5000'
+      PISTON_COMPILE_TIMEOUT: '10000'
+      PISTON_COMPILE_CPU_TIME: '10000'
+      PISTON_MAX_CONCURRENT_JOBS: '8'
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: codecast-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: codecast
+      POSTGRES_PASSWORD: codecast
+      POSTGRES_DB: codecast
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U codecast -d codecast']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  piston-packages:
+  postgres-data:

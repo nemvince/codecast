@@ -12,5 +12,8 @@
   "editor.codeActionsOnSave": {
     "source.format.oxc": "explicit"
   },
-  "js/ts.preferences.importModuleSpecifier": "non-relative"
+  "js/ts.preferences.importModuleSpecifier": "non-relative",
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  }
 }
