@@ -1,5 +1,6 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { admin } from 'better-auth/plugins'
 import { db, schema } from '@/db'
 import { env } from '@/lib/env'
 
@@ -14,6 +15,7 @@ export const auth = betterAuth({
     provider: 'pg',
     schema
   }),
+  plugins: [admin()],
   secret: env.AUTH_SECRET,
   socialProviders: {
     github: {

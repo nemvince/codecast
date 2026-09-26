@@ -52,8 +52,10 @@ export const RunHistory = ({
       <RunOutput run={selected} />
 
       <ol className='m-0 flex w-28 shrink-0 list-none flex-col gap-0.5 overflow-auto border-l pl-2 sm:w-40'>
-        {runs.map((run) => {
+        {runs.map((run, position) => {
           const isSelected = run.id === selected.id
+          // Runs arrive newest first, so counting back from the end keeps each number stable.
+          const index = runs.length - position
 
           return (
             <li key={run.id}>
@@ -65,14 +67,14 @@ export const RunHistory = ({
                     : 'text-muted-foreground hover:bg-muted/50'
                 }`}
                 onClick={() => setSelectedId(run.id)}
-                title={`#${run.id} · ${formatClock(run.createdAt)}`}
+                title={`#${index} · ${formatClock(run.createdAt)}`}
                 type='button'
               >
                 <span
                   aria-hidden='true'
                   className={`size-1.5 shrink-0 rounded-full ${TONE_DOT[runStatus(run).tone]}`}
                 />
-                <span className='font-mono font-medium'>#{run.id}</span>
+                <span className='font-mono font-medium'>#{index}</span>
                 <span className='ml-auto tabular-nums'>{formatDuration(run.durationMs)}</span>
               </button>
             </li>

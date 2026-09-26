@@ -35,7 +35,6 @@ import { client, orpc } from '@/orpc/client'
 
 interface CastEditorProps {
   slug: string
-  editKey: string
   initial: CastView
 }
 
@@ -74,14 +73,14 @@ const AUTOSAVE_DELAY_MS = 200
  * The instructor's draft is the source of truth: only the fields the instructor actually touched
  * are sent, so polling can never write polled data back over what is being typed.
  */
-const useAutosave = (slug: string, editKey: string, draft: CastDraft) => {
+const useAutosave = (slug: string, draft: CastDraft) => {
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [lostAccess, setLostAccess] = useState(false)
   const dirtyFields = useRef(new Set<SavableField>())
   const { code, language, stdin, version } = draft
 
   const payloadFor = (fields: Set<SavableField>): Parameters<typeof client.updateCast>[0] => {
-    const payload: Parameters<typeof client.updateCast>[0] = { editKey, slug }
+    const payload: Parameters<typeof client.updateCast>[0] = { slug }
 
     if (fields.has('code')) {
       payload.code = code
@@ -126,12 +125,12 @@ const useAutosave = (slug: string, editKey: string, draft: CastDraft) => {
     }, AUTOSAVE_DELAY_MS)
 
     return () => clearTimeout(timer)
-  }, [code, editKey, language, slug, stdin, version])
+  }, [code, language, slug, stdin, version])
 
   return { dirtyFields, lostAccess, reportSaveFailure, saveState, setSaveState }
 }
 
-export const CastEditor = ({ editKey, initial, slug }: CastEditorProps) => {
+export const CastEditor = ({ initial, slug }: CastEditorProps) => {
   const queryClient = useQueryClient()
   const [code, setCode] = useState(initial.code)
   const [stdin, setStdin] = useState(initial.stdin)
@@ -149,7 +148,6 @@ export const CastEditor = ({ editKey, initial, slug }: CastEditorProps) => {
   const runs = runsQuery.data ?? []
   const { dirtyFields, lostAccess, reportSaveFailure, saveState, setSaveState } = useAutosave(
     slug,
-    editKey,
     {
       code,
       language,
@@ -166,7 +164,7 @@ export const CastEditor = ({ editKey, initial, slug }: CastEditorProps) => {
   }, [slug])
 
   const runMutation = useMutation({
-    mutationFn: () => client.runCastCode({ code, editKey, slug, stdin }),
+    mutationFn: () => client.runCastCode({ code, slug, stdin }),
     onSuccess: async () => {
       dirtyFields.current.clear()
       await queryClient.invalidateQueries({ queryKey: orpc.listRuns.key({ input: { slug } }) })
@@ -175,7 +173,7 @@ export const CastEditor = ({ editKey, initial, slug }: CastEditorProps) => {
   })
 
   const endMutation = useMutation({
-    mutationFn: () => client.endCast({ editKey, slug }),
+    mutationFn: () => client.endCast({ slug }),
     onSuccess: async () => {
       setConfirmingEnd(false)
       await queryClient.invalidateQueries({ queryKey: orpc.getCast.key({ input: { slug } }) })
@@ -209,7 +207,6 @@ export const CastEditor = ({ editKey, initial, slug }: CastEditorProps) => {
     await client
       .updateCast({
         code: starter,
-        editKey,
         language: next.id,
         slug,
         stdin: '',
@@ -226,7 +223,7 @@ export const CastEditor = ({ editKey, initial, slug }: CastEditorProps) => {
           <WarningCircleIcon />
           <AlertTitle>You no longer have editing access to this cast</AlertTitle>
           <AlertDescription>
-            If your browser&apos;s site data was cleared, start a new cast and share the new link.
+            Sign in with the account that started this cast to keep editing it.
           </AlertDescription>
         </Alert>
       ) : null}

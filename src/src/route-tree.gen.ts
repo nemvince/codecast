@@ -8,13 +8,13 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as ApiSplatRouteImport } from './routes/api/$'
-import { Route as CSlugRouteImport } from './routes/c.$slug'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc/$'
+import { Route as rootRouteImport } from './../routes/__root'
+import { Route as IndexRouteImport } from './../routes/index'
+import { Route as AdminRouteImport } from './../routes/admin'
+import { Route as ApiSplatRouteImport } from './../routes/api/$'
+import { Route as CSlugRouteImport } from './../routes/c.$slug'
+import { Route as ApiAuthSplatRouteImport } from './../routes/api/auth/$'
+import { Route as ApiRpcSplatRouteImport } from './../routes/api/rpc/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -155,3 +155,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from '../router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

@@ -23,5 +23,5 @@
       "unknown"
     ]
   },
-  "ignorePatterns": ["src/route-tree.gen.ts", "drizzle/**"]
+  "ignorePatterns": ["src/route-tree.gen.ts", "src/src/route-tree.gen.ts", "drizzle/**"]
 }

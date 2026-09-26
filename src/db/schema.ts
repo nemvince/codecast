@@ -2,6 +2,9 @@ import { relations, sql } from 'drizzle-orm'
 import { pgTable, text, timestamp, boolean, index, integer, uuid } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
+  banExpires: timestamp('ban_expires', { withTimezone: true }),
+  banReason: text('ban_reason'),
+  banned: boolean('banned').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
@@ -10,6 +13,7 @@ export const user = pgTable('user', {
     .primaryKey(),
   image: text('image'),
   name: text('name').notNull(),
+  role: text('role').default('user').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .$onUpdate(() => new Date())
     .notNull()
@@ -23,6 +27,7 @@ export const session = pgTable(
     id: uuid('id')
       .default(sql`pg_catalog.gen_random_uuid()`)
       .primaryKey(),
+    impersonatedBy: text('impersonated_by'),
     ipAddress: text('ip_address'),
     token: text('token').notNull().unique(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
@@ -84,7 +89,6 @@ export const casts = pgTable(
   {
     code: text().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    editKey: text('edit_key').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     id: uuid('id')
       .default(sql`pg_catalog.gen_random_uuid()`)
@@ -92,7 +96,9 @@ export const casts = pgTable(
     language: text().notNull(),
     slug: text('slug').notNull().unique(),
     stdin: text().notNull().default(''),
-    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
     version: text().notNull()
   },
   (table) => [

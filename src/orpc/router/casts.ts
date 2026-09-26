@@ -3,9 +3,9 @@ import { desc, eq, lt, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '@/db'
 import { runs, casts } from '@/db/schema'
+import { auth } from '@/lib/auth/server'
 import { castEvents, publishCastEvent } from '@/lib/cast/bus'
 import {
-  EDIT_KEY_LENGTH,
   MAX_RUNS_PER_SESSION,
   randomId,
   SESSION_TTL_MS,
@@ -17,6 +17,7 @@ import { execute as runOnPiston, fetchAvailableLanguages, PistonError } from '@/
 import {
   CastEventSchema,
   CastStateSchema,
+  MyCastSchema,
   type Run,
   type RunResult,
   RunResultSchema,
@@ -24,7 +25,25 @@ import {
 } from '@/orpc/schema'
 
 const CODE_LIMIT = 100_000
+const MY_CASTS_LIMIT = 20
 const STDIN_LIMIT = 10_000
+
+/** Better Auth needs the request headers to resolve the caller's session. */
+const base = os.$context<{ headers: Headers }>()
+
+/** Better Auth resolves the caller from the request headers; every session rule starts here. */
+const sessionFrom = async (headers: Headers) => {
+  const session = await auth.api.getSession({ headers })
+  if (!session) {
+    throw new ORPCError('UNAUTHORIZED', { message: 'Sign in to continue.' })
+  }
+
+  return session
+}
+
+const requireSession = base.middleware(async ({ context, next }) =>
+  next({ context: { session: await sessionFrom(context.headers) } })
+)
 
 const requireLanguage = (id: string): LanguageDefinition => {
   const definition = findLanguage(id)
@@ -35,19 +54,58 @@ const requireLanguage = (id: string): LanguageDefinition => {
   return definition
 }
 
-const requireCast = async (slug: string, editKey: string) => {
+const isLive = (expiresAt: Date): boolean => expiresAt.getTime() > Date.now()
+
+/** The row behind a slug: nothing in this router reads a cast without going through it. */
+const findCast = async (slug: string) => {
   const [cast] = await db.select().from(casts).where(eq(casts.slug, slug))
-  if (!cast || cast.expiresAt.getTime() <= Date.now()) {
+  if (!cast) {
     throw new ORPCError('NOT_FOUND', { message: 'This cast has ended.' })
-  }
-  if (cast.editKey !== editKey) {
-    throw new ORPCError('FORBIDDEN', {
-      message: 'You do not have editing access to this cast.'
-    })
   }
 
   return cast
 }
+
+/** Anyone with the link may run their own code, but only against a cast that is still live. */
+const requireLiveCast = base.middleware(async ({ next }, input: { slug: string }) => {
+  const cast = await findCast(input.slug)
+  if (!isLive(cast.expiresAt)) {
+    throw new ORPCError('NOT_FOUND', { message: 'This cast has ended.' })
+  }
+
+  return next({ context: { cast } })
+})
+
+/** Ownership is one rule with one answer, so every owner guard asks the same question. */
+const requireOwnership = async (headers: Headers, slug: string) => {
+  const session = await sessionFrom(headers)
+  const cast = await findCast(slug)
+  if (cast.userId !== session.user.id) {
+    throw new ORPCError('FORBIDDEN', { message: 'This cast belongs to another account.' })
+  }
+
+  return cast
+}
+
+/** Editing follows the account that started the cast: there is no shareable edit credential. */
+const requireLiveOwner = base.middleware(async ({ context, next }, input: { slug: string }) => {
+  const cast = await requireOwnership(context.headers, input.slug)
+  if (!isLive(cast.expiresAt)) {
+    throw new ORPCError('NOT_FOUND', { message: 'This cast has ended.' })
+  }
+
+  return next({ context: { cast } })
+})
+
+/** Owning a cast is enough to delete it, but only once it is over: a live one must be stopped. */
+const requireStoppedOwner = base.middleware(async ({ context, next }, input: { slug: string }) => {
+  const cast = await requireOwnership(context.headers, input.slug)
+  if (isLive(cast.expiresAt)) {
+    throw new ORPCError('BAD_REQUEST', { message: 'Stop the cast before deleting it.' })
+  }
+
+  return next({ context: { cast } })
+})
 
 const requireAvailableLanguage = async (id: string, version: string): Promise<void> => {
   const available = await withEngine(() => fetchAvailableLanguages())
@@ -129,45 +187,79 @@ const toRun = (row: typeof runs.$inferSelect): Run => ({
   stdin: row.stdin
 })
 
-export const listLanguages = os
+export const listLanguages = base
   .input(z.object({}))
   .handler(() => withEngine(() => fetchAvailableLanguages()))
 
-export const createCast = os.input(z.object({})).handler(async () => {
-  const [first] = await withEngine(() => fetchAvailableLanguages())
-  if (!first) {
-    throw new ORPCError('SERVICE_UNAVAILABLE', {
-      message: 'No code runtimes are installed in Piston. Run: bun run piston:setup'
-    })
-  }
+export const createCast = base
+  .use(requireSession)
+  .input(z.object({}))
+  .handler(async ({ context }) => {
+    const [first] = await withEngine(() => fetchAvailableLanguages())
+    if (!first) {
+      throw new ORPCError('SERVICE_UNAVAILABLE', {
+        message: 'No code runtimes are installed in Piston. Run: bun run piston:setup'
+      })
+    }
 
-  await db.delete(casts).where(lt(casts.expiresAt, sql`now() - interval '7 days'`))
+    await db.delete(casts).where(lt(casts.expiresAt, sql`now() - interval '7 days'`))
 
-  const [created] = await db
-    .insert(casts)
-    .values({
-      code: requireLanguage(first.id).starter,
-      editKey: randomId(EDIT_KEY_LENGTH),
-      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
-      language: first.id,
-      slug: randomId(SLUG_LENGTH),
-      stdin: '',
-      version: first.version
-    })
-    .returning({ editKey: casts.editKey, slug: casts.slug })
+    const [created] = await db
+      .insert(casts)
+      .values({
+        code: requireLanguage(first.id).starter,
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+        language: first.id,
+        slug: randomId(SLUG_LENGTH),
+        stdin: '',
+        userId: context.session.user.id,
+        version: first.version
+      })
+      .returning({ slug: casts.slug })
 
-  return created
-})
+    return created
+  })
 
-export const getCast = os
+/** Deletes the run history with the cast: `runs.cast_id` cascades, and watchers are told to stop. */
+export const deleteCast = base
+  .input(z.object({ slug: slugSchema }))
+  .use(requireStoppedOwner)
+  .handler(async ({ context, input }) => {
+    await db.delete(casts).where(eq(casts.id, context.cast.id))
+    publishCastEvent(input.slug, 'cast')
+
+    return { ok: true }
+  })
+
+export const listMyCasts = base
+  .use(requireSession)
+  .input(z.object({}))
+  .output(z.array(MyCastSchema))
+  .handler(async ({ context }) => {
+    const rows = await db
+      .select({ createdAt: casts.createdAt, expiresAt: casts.expiresAt, slug: casts.slug })
+      .from(casts)
+      .where(eq(casts.userId, context.session.user.id))
+      .orderBy(desc(casts.createdAt))
+      .limit(MY_CASTS_LIMIT)
+
+    return rows.map((row) => ({
+      createdAt: row.createdAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
+      slug: row.slug,
+      status: isLive(row.expiresAt) ? ('active' as const) : ('ended' as const)
+    }))
+  })
+
+export const getCast = base
   .input(z.object({ slug: slugSchema }))
   .output(CastStateSchema)
-  .handler(async ({ input }) => {
+  .handler(async ({ context, input }) => {
     const [cast] = await db.select().from(casts).where(eq(casts.slug, input.slug))
     if (!cast) {
       return { status: 'missing' as const }
     }
-    if (cast.expiresAt.getTime() <= Date.now()) {
+    if (!isLive(cast.expiresAt)) {
       return { endedAt: cast.expiresAt.toISOString(), status: 'ended' as const }
     }
 
@@ -178,10 +270,14 @@ export const getCast = os
       .orderBy(desc(runs.createdAt))
       .limit(1)
 
+    // Watching is public, so the caller is resolved only to decide who gets the editor.
+    const session = await auth.api.getSession({ headers: context.headers })
+
     return {
       cast: {
         code: cast.code,
         expiresAt: cast.expiresAt.toISOString(),
+        isOwner: session?.user.id === cast.userId,
         language: cast.language,
         latestRunId: latest?.id ?? null,
         slug: cast.slug,
@@ -192,7 +288,7 @@ export const getCast = os
     }
   })
 
-export const listRuns = os
+export const listRuns = base
   .input(z.object({ slug: slugSchema }))
   .output(z.array(RunSchema))
   .handler(async ({ input }) => {
@@ -218,7 +314,7 @@ export const listRuns = os
  * stream only ends when the viewer goes away, so a dropped connection is reconnected by the client,
  * which then refetches both keys rather than asking the server to replay what it missed.
  */
-export const watchCast = os
+export const watchCast = base
   .input(z.object({ slug: slugSchema }))
   .output(eventIterator(CastEventSchema))
   .handler(async function* feed({ input, signal }) {
@@ -227,20 +323,18 @@ export const watchCast = os
     }
   })
 
-export const updateCast = os
+export const updateCast = base
   .input(
     z.object({
       code: z.string().max(CODE_LIMIT).optional(),
-      editKey: z.string(),
       language: z.string().optional(),
       slug: slugSchema,
       stdin: z.string().max(STDIN_LIMIT).optional(),
       version: z.string().optional()
     })
   )
-  .handler(async ({ input }) => {
-    const cast = await requireCast(input.slug, input.editKey)
-
+  .use(requireLiveOwner)
+  .handler(async ({ context, input }) => {
     if ((input.language === undefined) !== (input.version === undefined)) {
       throw new ORPCError('BAD_REQUEST', {
         message: 'A language change needs both a language and a version.'
@@ -258,60 +352,58 @@ export const updateCast = os
     }
 
     if (Object.keys(changes).length > 0) {
-      await db.update(casts).set(changes).where(eq(casts.id, cast.id))
+      await db.update(casts).set(changes).where(eq(casts.id, context.cast.id))
       publishCastEvent(input.slug, 'cast')
     }
 
     return { ok: true }
   })
 
-export const runCastCode = os
+export const runCastCode = base
   .input(
     z.object({
       code: z.string().max(CODE_LIMIT),
-      editKey: z.string(),
       slug: slugSchema,
       stdin: z.string().max(STDIN_LIMIT)
     })
   )
+  .use(requireLiveOwner)
   .output(RunSchema)
-  .handler(async ({ input }) => {
-    const cast = await requireCast(input.slug, input.editKey)
-
+  .handler(async ({ context, input }) => {
     // Persist the submitted code first: a run must never drift from the code it ran.
     await db
       .update(casts)
       .set({ code: input.code, stdin: input.stdin })
-      .where(eq(casts.id, cast.id))
+      .where(eq(casts.id, context.cast.id))
 
     const result = await executeAndShape({
       code: input.code,
-      language: cast.language,
+      language: context.cast.language,
       stdin: input.stdin,
-      version: cast.version
+      version: context.cast.version
     })
 
     const [inserted] = await db
       .insert(runs)
       .values({
-        castId: cast.id,
+        castId: context.cast.id,
         compileExitCode: result.compile?.exitCode ?? null,
         compileSignal: result.compile?.signal ?? null,
         compileStderr: result.compile?.stderr ?? '',
         compileStdout: result.compile?.stdout ?? '',
         durationMs: result.durationMs,
         exitCode: result.stage.exitCode,
-        language: cast.language,
+        language: context.cast.language,
         signal: result.stage.signal,
         stderr: result.stage.stderr,
         stdin: input.stdin,
         stdout: result.stage.stdout,
-        version: cast.version
+        version: context.cast.version
       })
       .returning()
 
     await db.execute(
-      sql`DELETE FROM runs WHERE cast_id = ${cast.id} AND id NOT IN (SELECT id FROM runs WHERE cast_id = ${cast.id} ORDER BY created_at DESC LIMIT ${MAX_RUNS_PER_SESSION})`
+      sql`DELETE FROM runs WHERE cast_id = ${context.cast.id} AND id NOT IN (SELECT id FROM runs WHERE cast_id = ${context.cast.id} ORDER BY created_at DESC LIMIT ${MAX_RUNS_PER_SESSION})`
     )
 
     publishCastEvent(input.slug, 'cast')
@@ -320,15 +412,17 @@ export const runCastCode = os
     return toRun(inserted)
   })
 
-export const runScratchCode = os
+export const runScratchCode = base
   .input(
     z.object({
       code: z.string().max(CODE_LIMIT),
       language: z.string(),
+      slug: slugSchema,
       stdin: z.string().max(STDIN_LIMIT),
       version: z.string()
     })
   )
+  .use(requireLiveCast)
   .output(RunResultSchema)
   .handler(async ({ input }) => {
     await requireAvailableLanguage(input.language, input.version)
@@ -336,11 +430,11 @@ export const runScratchCode = os
     return executeAndShape(input)
   })
 
-export const endCast = os
-  .input(z.object({ editKey: z.string(), slug: slugSchema }))
-  .handler(async ({ input }) => {
-    const cast = await requireCast(input.slug, input.editKey)
-    await db.update(casts).set({ expiresAt: new Date() }).where(eq(casts.id, cast.id))
+export const endCast = base
+  .input(z.object({ slug: slugSchema }))
+  .use(requireLiveOwner)
+  .handler(async ({ context, input }) => {
+    await db.update(casts).set({ expiresAt: new Date() }).where(eq(casts.id, context.cast.id))
     publishCastEvent(input.slug, 'cast')
 
     return { ok: true }

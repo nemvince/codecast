@@ -15,6 +15,7 @@
     "db:push": "drizzle-kit push",
     "db:pull": "drizzle-kit pull",
     "db:studio": "drizzle-kit studio",
+    "admin:grant": "bun scripts/admin-grant.ts",
     "piston:setup": "bun scripts/piston-setup.ts"
   },
   "dependencies": {

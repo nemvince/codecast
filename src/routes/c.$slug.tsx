@@ -1,7 +1,6 @@
 import { BroadcastIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute, notFound } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
 import { CastEditor } from '@/components/cast-editor'
 import { CastViewer } from '@/components/cast-viewer'
 import { Button } from '@/components/ui/button'
@@ -13,21 +12,13 @@ import {
   EmptyMedia,
   EmptyTitle
 } from '@/components/ui/empty'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useCastStream } from '@/lib/cast'
 import { slugSchema } from '@/lib/cast/slug'
 import { runsQueryOptions } from '@/lib/queries'
-import { readEditKey } from '@/lib/storage'
 import { orpc } from '@/orpc/client'
 
 const CastPage = ({ children }: { children: React.ReactNode }) => (
   <main className='flex grow flex-col'>{children}</main>
-)
-
-const LoadingPanel = () => (
-  <CastPage>
-    <Skeleton className='grow rounded-none' />
-  </CastPage>
 )
 
 const NotFoundPanel = () => (
@@ -52,32 +43,14 @@ const NotFoundPanel = () => (
   </CastPage>
 )
 
-/** Read after mount: the edit key lives in localStorage, which does not exist on the server. */
-const useEditAccess = (slug: string) => {
-  const [access, setAccess] = useState<{ editKey: string | null; mounted: boolean }>({
-    editKey: null,
-    mounted: false
-  })
-
-  useEffect(() => {
-    setAccess({ editKey: readEditKey(slug), mounted: true })
-  }, [slug])
-
-  return access
-}
-
 const CastRoute = () => {
   const { slug } = Route.useParams()
   const loaderState = Route.useLoaderData()
   const castQuery = useQuery(orpc.getCast.queryOptions({ input: { slug } }))
   const state = castQuery.data ?? loaderState
-  const { editKey, mounted } = useEditAccess(slug)
 
   useCastStream(slug)
 
-  if (!mounted) {
-    return <LoadingPanel />
-  }
   if (state.status === 'missing') {
     return <NotFoundPanel />
   }
@@ -88,10 +61,10 @@ const CastRoute = () => {
       </CastPage>
     )
   }
-  if (editKey) {
+  if (state.cast.isOwner) {
     return (
       <CastPage>
-        <CastEditor editKey={editKey} initial={state.cast} slug={slug} />
+        <CastEditor initial={state.cast} slug={slug} />
       </CastPage>
     )
   }

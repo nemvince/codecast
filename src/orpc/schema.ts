@@ -1,10 +1,5 @@
 import { z } from 'zod'
 
-export const TodoSchema = z.object({
-  id: z.number().int().min(1),
-  name: z.string()
-})
-
 export const LanguageSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -39,9 +34,17 @@ export const CastEventSchema = z.object({
   slug: z.string()
 })
 
+export const MyCastSchema = z.object({
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  slug: z.string(),
+  status: z.enum(['active', 'ended'])
+})
+
 export const CastViewSchema = z.object({
   code: z.string(),
   expiresAt: z.string(),
+  isOwner: z.boolean(),
   language: z.string(),
   latestRunId: z.uuid().nullable(),
   slug: z.string(),
@@ -62,5 +65,6 @@ export type RunResult = z.infer<typeof RunResultSchema>
 export type Run = z.infer<typeof RunSchema>
 export type CastEvent = z.infer<typeof CastEventSchema>
 export type CastEventKind = CastEvent['kind']
+export type MyCast = z.infer<typeof MyCastSchema>
 export type CastView = z.infer<typeof CastViewSchema>
 export type CastState = z.infer<typeof CastStateSchema>

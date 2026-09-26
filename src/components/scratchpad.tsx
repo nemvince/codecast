@@ -59,7 +59,7 @@ export const Scratchpad = ({ defaultLanguage, slug, toolbar }: ScratchpadProps) 
   const version = languages.find((entry) => entry.id === language)?.version ?? ''
 
   const runMutation = useMutation({
-    mutationFn: () => client.runScratchCode({ code, language, stdin, version }),
+    mutationFn: () => client.runScratchCode({ code, language, slug, stdin, version }),
     onSuccess: (data) => {
       setResult(data)
       setRunCount((current) => current + 1)
