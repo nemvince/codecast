@@ -1,3 +1,4 @@
+import type { RateLimiter } from '@orpc/ratelimit'
 import { ORPCError, eventIterator, os } from '@orpc/server'
 import { desc, eq, lt, sql } from 'drizzle-orm'
 import { z } from 'zod'
@@ -13,6 +14,7 @@ import {
   slugSchema
 } from '@/lib/cast/slug'
 import { findLanguage, type LanguageDefinition } from '@/lib/languages'
+import { clientKey, createCastLimiter, openFeed, runLimiter } from '@/lib/limits'
 import { execute as runOnPiston, fetchAvailableLanguages, PistonError } from '@/lib/piston'
 import {
   CastEventSchema,
@@ -30,6 +32,34 @@ const STDIN_LIMIT = 10_000
 
 /** Better Auth needs the request headers to resolve the caller's session. */
 const base = os.$context<{ headers: Headers }>()
+
+/**
+ * The limiter middleware from the rate limit docs, mounted against this app's oRPC: the helper's own
+ * middleware and header plugin are written for oRPC 1.14 handler internals, which 1.15 reshaped. It
+ * takes the `RateLimiter` the docs describe instead, so only the wiring is local and the counter —
+ * fixed window, weight, result shape — is the helper's.
+ *
+ * One rule per request kind: the limiter differs, the key is always the same client. Runs and cast
+ * creation are the whole of it — reads cost one indexed query, and the page refetches them on every
+ * event, so metering those would throttle a viewer watching a fast typist.
+ *
+ * ponytail: hand-written middleware; swap for the helper's `ratelimit()` when the app is on oRPC 2.
+ */
+const limitByClient = (prefix: string, limiter: RateLimiter) =>
+  base.middleware(async ({ context, next }) => {
+    const result = await limiter.limit(`${prefix}:${clientKey(context.headers)}`)
+    if (!result.success) {
+      throw new ORPCError('TOO_MANY_REQUESTS', {
+        data: { limit: result.limit, remaining: result.remaining, reset: result.reset },
+        message: 'Too many requests in a row. Try again in a moment.'
+      })
+    }
+
+    return next()
+  })
+
+const limitRuns = limitByClient('runs', runLimiter)
+const limitCastCreation = limitByClient('create', createCastLimiter)
 
 /** Better Auth resolves the caller from the request headers; every session rule starts here. */
 const sessionFrom = async (headers: Headers) => {
@@ -74,6 +104,25 @@ const requireLiveCast = base.middleware(async ({ next }, input: { slug: string }
   }
 
   return next({ context: { cast } })
+})
+
+/**
+ * A live feed is held open for as long as the viewer stays, so it is the one request whose cost
+ * outlives its response. Reserving the slot in a middleware rather than in the handler is what makes
+ * a refusal an honest 429: once the stream has started, an error can only break it.
+ */
+const requireFeedSlot = base.middleware(async ({ context, next, signal }) => {
+  const release = openFeed(clientKey(context.headers))
+  if (!release) {
+    throw new ORPCError('TOO_MANY_REQUESTS', {
+      message: 'Too many live casts open from here. Close one and reload.'
+    })
+  }
+
+  // Also freed by the handler, whichever comes first: a slot that leaks locks a client out for good.
+  signal?.addEventListener('abort', release)
+
+  return next({ context: { releaseFeed: release } })
 })
 
 /** Ownership is one rule with one answer, so every owner guard asks the same question. */
@@ -192,8 +241,9 @@ export const listLanguages = base
   .handler(() => withEngine(() => fetchAvailableLanguages()))
 
 export const createCast = base
-  .use(requireSession)
   .input(z.object({}))
+  .use(limitCastCreation)
+  .use(requireSession)
   .handler(async ({ context }) => {
     const [first] = await withEngine(() => fetchAvailableLanguages())
     if (!first) {
@@ -317,9 +367,15 @@ export const listRuns = base
 export const watchCast = base
   .input(z.object({ slug: slugSchema }))
   .output(eventIterator(CastEventSchema))
-  .handler(async function* feed({ input, signal }) {
-    for await (const event of castEvents.subscribe(input.slug, { signal })) {
-      yield event
+  .use(requireLiveCast)
+  .use(requireFeedSlot)
+  .handler(async function* feed({ context, input, signal }) {
+    try {
+      for await (const event of castEvents.subscribe(input.slug, { signal })) {
+        yield event
+      }
+    } finally {
+      context.releaseFeed()
     }
   })
 
@@ -367,6 +423,7 @@ export const runCastCode = base
       stdin: z.string().max(STDIN_LIMIT)
     })
   )
+  .use(limitRuns)
   .use(requireLiveOwner)
   .output(RunSchema)
   .handler(async ({ context, input }) => {
@@ -422,6 +479,7 @@ export const runScratchCode = base
       version: z.string()
     })
   )
+  .use(limitRuns)
   .use(requireLiveCast)
   .output(RunResultSchema)
   .handler(async ({ input }) => {

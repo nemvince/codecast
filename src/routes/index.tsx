@@ -1,5 +1,12 @@
 import { ORPCError } from '@orpc/client'
-import { BroadcastIcon, ClockIcon, GithubLogoIcon, SignInIcon } from '@phosphor-icons/react'
+import {
+  BroadcastIcon,
+  BugIcon,
+  ClockIcon,
+  CoffeeIcon,
+  GithubLogoIcon,
+  SignInIcon
+} from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
@@ -252,6 +259,36 @@ const HomePage = () => {
           </ItemGroup>
         )}
       </section>
+
+      {/* Out of the way of the page's own work, and never in the way of a lesson. */}
+      <footer className='flex flex-wrap justify-center gap-2'>
+        <Button
+          className='text-muted-foreground'
+          render={
+            <a href='https://www.buymeacoffee.com/nemvince' rel='noreferrer' target='_blank' />
+          }
+          size='sm'
+          variant='ghost'
+        >
+          <CoffeeIcon />
+          Buy me a coffee
+        </Button>
+        <Button
+          className='text-muted-foreground'
+          render={
+            <a
+              href='https://github.com/nemvince/codecast/issues/new'
+              rel='noreferrer'
+              target='_blank'
+            />
+          }
+          size='sm'
+          variant='ghost'
+        >
+          <BugIcon />
+          Found an issue?
+        </Button>
+      </footer>
     </main>
   )
 }

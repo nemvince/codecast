@@ -1,11 +1,27 @@
 services:
+  # app:
+  #   build: .
+  #   container_name: codecast-app
+  #   restart: unless-stopped
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     piston:
+  #       condition: service_started
+  #   env_file: .env
+  #   environment:
+  #     DATABASE_URL: postgresql://codecast:codecast@postgres:5432/codecast
+  #     PISTON_URL: http://piston:2000
+  #   ports:
+  #     - '127.0.0.1:3000:3000'
+
   piston:
-    image: ghcr.io/engineer-man/piston
+    image: ghcr.io/engineer-man/piston@sha256:2f66b7456189c4d713aa986d98eccd0b6ee16d26c7ec5f21b30e942756fd127a
     container_name: codecast-piston
     restart: unless-stopped
     privileged: true
     ports:
-      - '2000:2000'
+      - '127.0.0.1:2000:2000'
     volumes:
       - piston-packages:/piston/packages
     tmpfs:
@@ -23,7 +39,7 @@ services:
     container_name: codecast-postgres
     restart: unless-stopped
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     environment:
       POSTGRES_USER: codecast
       POSTGRES_PASSWORD: codecast

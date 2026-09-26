@@ -1,0 +1,15 @@
+.env
+.env.*
+
+.git
+.gitignore
+.vscode
+
+# Rebuilt inside the image.
+.output
+node_modules
+.tanstack
+
+Dockerfile
+compose.yml
+docker-compose.yml

@@ -4,8 +4,18 @@ import { OpenAPIReferencePlugin } from '@orpc/openapi/plugins'
 import { onError } from '@orpc/server'
 import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4'
 import { createFileRoute } from '@tanstack/react-router'
+import { env } from '@/lib/env'
 import router from '@/orpc/router'
 
+/** The cookie Better Auth sets. `__Secure-` appears in front of it when BASE_URL is https. */
+const SESSION_COOKIE = 'better-auth.session_token'
+
+/**
+ * The same router the app talks to over /api/rpc, served as a documented REST API for scripts. Every
+ * procedure keeps the guard it has in the app: nothing here is reachable that the app could not
+ * reach. Authentication is the Better Auth session cookie, and the sign-in endpoints themselves are
+ * documented by the auth server at /api/auth/reference.
+ */
 const handler = new OpenAPIHandler(router, {
   interceptors: [
     onError((error) => {
@@ -17,33 +27,25 @@ const handler = new OpenAPIHandler(router, {
       schemaConverters: [new ZodToJsonSchemaConverter()]
     }),
     new OpenAPIReferencePlugin({
-      docsConfig: {
-        authentication: {
-          securitySchemes: {
-            bearerAuth: {
-              token: 'default-token'
-            }
-          }
-        }
-      },
+      docsTitle: 'CodeCast API',
       schemaConverters: [new ZodToJsonSchemaConverter()],
       specGenerateOptions: {
-        commonSchemas: {
-          UndefinedError: { error: 'UndefinedError' }
-        },
         components: {
           securitySchemes: {
-            bearerAuth: {
-              scheme: 'bearer',
-              type: 'http'
+            sessionCookie: {
+              description: `Set by the GitHub sign-in at /api/auth/sign-in/social, and prefixed with __Secure- when BASE_URL is https.`,
+              in: 'cookie',
+              name: SESSION_COOKIE,
+              type: 'apiKey'
             }
           }
         },
         info: {
-          title: 'TanStack ORPC Playground',
+          description: `Start a cast, edit it as its owner, or watch and run code against a live one. The auth endpoints are documented at /api/auth/reference.`,
+          title: 'CodeCast API',
           version: '1.0.0'
         },
-        security: [{ bearerAuth: [] }]
+        servers: [{ description: 'This deployment', url: env.BASE_URL }]
       }
     })
   ]

@@ -1,5 +1,21 @@
 import { z } from 'zod'
-import { compareLanguageVersions, LANGUAGES } from '../src/lib/languages.ts'
+import { LANGUAGES } from '../src/lib/languages.ts'
+
+/**
+ * The versions this app is verified against. Piston serves its package index from GitHub, so which
+ * version is newest there changes without warning; installing by fixed version keeps a rebuilt
+ * engine identical to the one that was tested. To move up, change a version here and re-run — the
+ * app then offers the newest installed version of each language.
+ */
+const PINNED_VERSIONS: Record<string, string> = {
+  gcc: '10.2.0',
+  go: '1.16.2',
+  java: '15.0.2',
+  node: '20.11.1',
+  python: '3.12.0',
+  rust: '1.68.2',
+  typescript: '5.0.3'
+}
 
 const packageSchema = z.object({
   installed: z.boolean(),
@@ -50,26 +66,26 @@ const call = (path: string, init?: RequestInit): Promise<unknown> =>
 
 type PistonPackage = z.infer<typeof packageSchema>
 
-const newest = (candidates: PistonPackage[]): PistonPackage =>
-  candidates.reduce((best, entry) =>
-    compareLanguageVersions(entry.language_version, best.language_version) > 0 ? entry : best
+const installPackage = async (
+  name: string,
+  version: string,
+  packages: PistonPackage[]
+): Promise<void> => {
+  const pinned = packages.find(
+    (entry) => entry.language === name && entry.language_version === version
   )
-
-const installPackage = async (name: string, packages: PistonPackage[]): Promise<void> => {
-  const candidates = packages.filter((entry) => entry.language === name)
-  if (candidates.length === 0) {
-    throw new Error(`Piston has no package named "${name}"`)
+  if (!pinned) {
+    throw new Error(`Piston does not offer ${name} ${version}`)
   }
 
-  const chosen = newest(candidates)
-  if (chosen.installed) {
-    console.log(`✓ ${name} ${chosen.language_version} is already installed`)
+  if (pinned.installed) {
+    console.log(`✓ ${name} ${version} is already installed`)
     return
   }
 
   const installed = installedPackageSchema.parse(
     await call('/api/v2/packages', {
-      body: JSON.stringify({ language: name, version: chosen.language_version }),
+      body: JSON.stringify({ language: name, version }),
       headers: { 'content-type': 'application/json' },
       method: 'POST'
     })
@@ -78,17 +94,24 @@ const installPackage = async (name: string, packages: PistonPackage[]): Promise<
   console.log(`✓ installed ${installed.language} ${installed.version}`)
 }
 
+/** Every language the app offers needs a pinned version; `node` goes first, tsc is a node program. */
+const installOrder = (): string[] => {
+  const wanted = [...new Set(LANGUAGES.map((language) => language.package))]
+  const unpinned = wanted.filter((name) => !PINNED_VERSIONS[name])
+  if (unpinned.length > 0) {
+    throw new Error(`No pinned version for: ${unpinned.join(', ')}`)
+  }
+
+  return ['node', ...wanted.filter((name) => name !== 'node')]
+}
+
 const main = async (): Promise<void> => {
   const packages = z.array(packageSchema).parse(await call('/api/v2/packages'))
 
-  const wanted = new Set(LANGUAGES.map((language) => language.package))
-  // `node` first: the typescript package's tsc is a node program.
-  const ordered = ['node', ...[...wanted].filter((name) => name !== 'node')]
-
-  for (const name of ordered) {
+  for (const name of installOrder()) {
     // Installs run one at a time so a failed install stops the run instead of being logged past.
     // oxlint-disable-next-line no-await-in-loop
-    await installPackage(name, packages)
+    await installPackage(name, PINNED_VERSIONS[name], packages)
   }
 
   const runtimes = z.array(installedPackageSchema).parse(await call('/api/v2/runtimes'))
