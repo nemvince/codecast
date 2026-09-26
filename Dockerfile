@@ -9,6 +9,12 @@ RUN bun install --frozen-lockfile
 COPY . .
 RUN bun run build
 
+# Migrations run from here: this stage has the tooling, node_modules and `drizzle/` that the runtime
+# image deliberately does not. `--bun` is required — the runtime image has no `node` to run
+# drizzle-kit's shebang. Declared before `runtime` so the app stays the default build target.
+FROM build AS migrate
+CMD ["bun", "--bun", "drizzle-kit", "migrate"]
+
 
 FROM oven/bun:1.4.2-alpine AS runtime
 WORKDIR /app

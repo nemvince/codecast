@@ -15,6 +15,21 @@ services:
   #   ports:
   #     - '127.0.0.1:3000:3000'
 
+  # One-shot: applies drizzle/ to the database and exits. Run it before the app starts —
+  # `docker compose run --rm migrate` — or make the app service depend on it with
+  # `migrate: { condition: service_completed_successfully }`.
+  migrate:
+    build:
+      context: .
+      target: migrate
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://codecast:codecast@postgres:5432/codecast
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
   piston:
     image: ghcr.io/engineer-man/piston@sha256:2f66b7456189c4d713aa986d98eccd0b6ee16d26c7ec5f21b30e942756fd127a
     container_name: codecast-piston

@@ -76,7 +76,7 @@ What a client may ask for is bounded:
 docker compose up -d postgres piston   # Postgres 18 and Piston, on the loopback
 cp .env.example .env                   # then fill it in, see below
 bun install
-bun run db:push                        # create the schema
+bun run db:migrate                     # create the schema from drizzle/
 bun run piston:setup                   # install the pinned language runtimes
 bun run dev                            # http://localhost:3000
 ```
@@ -161,11 +161,105 @@ Before going live:
   `127.0.0.1`, and never port-forward it.
 - **Run exactly one app process.** See "How it works": the in-memory bus is the design, not an
   oversight.
-- **Track the schema in migrations.** `db:push` diffs and mutates, which is fine on a scratch
-  database and not fine on one holding real casts: `bun run db:generate` and commit `drizzle/`, then
-  `bun run db:migrate` as a deploy step.
+- **Run the migrations before the app.** They are idempotent and ordered, so every deploy can apply
+  them without thinking about it — see [Migrations](#migrations).
 - **Back up `postgres-data` and `.env`.** Losing the database loses every cast; losing `AUTH_SECRET`
   signs everyone out.
+
+### Migrations
+
+`drizzle/` holds the schema's history. `drizzle-kit migrate` applies whatever has not been applied
+yet and records each one in `drizzle.__drizzle_migrations`, so running it on every deploy is safe and
+running it twice does nothing. There are no down migrations: to undo a change, write the migration
+that reverses it, and take a dump first if the change drops anything.
+
+The compose file has a one-shot service for it, built from the same Dockerfile so the runtime image
+never has to carry the tooling:
+
+```bash
+docker compose run --rm migrate         # then start whatever runs the app
+```
+
+Let the app wait on it and a deploy stays one command:
+
+```yaml
+depends_on:
+  migrate: { condition: service_completed_successfully }
+```
+
+After changing `src/db/schema.ts`:
+
+```bash
+bun run db:generate   # writes drizzle/000N_*.sql and updates the snapshot
+bun run db:migrate    # review the SQL it wrote, then apply it
+```
+
+**A database that predates `drizzle/`** — one created with `db:push` — has the tables but no record
+of them, so a migration would try to create tables that already exist and fail. Tell it the first
+migration is already applied; both values come from the generated files:
+
+```bash
+sha256sum drizzle/0000_*.sql                        # hash
+jq '.entries[0].when' drizzle/meta/_journal.json    # created_at
+```
+
+```sql
+create schema if not exists drizzle;
+create table if not exists drizzle."__drizzle_migrations" (
+  id serial primary key,
+  hash text not null,
+  created_at bigint
+);
+insert into drizzle."__drizzle_migrations" (hash, created_at) values ('<hash>', <created_at>);
+```
+
+One migration per entry, oldest first. `db:push` remains the quick way to shape a scratch database
+you are happy to throw away.
+
+### Coolify
+
+`compose.coolify.yml` is the deployment file for [Coolify](https://coolify.io). Create it as an
+**Application** from this repository — build pack **Docker Compose**, **Base Directory** `/`,
+**Docker Compose Location** `/compose.coolify.yml` — then:
+
+1. **Domains**, on the `app` service only: `https://<your-domain>:3000`. The suffix is the container
+   port the proxy routes to; nothing in the stack publishes a port to the host.
+2. **Environment Variables**. Coolify lists every `${VAR:?}` in the file and refuses to deploy while
+   one is empty:
+
+   | Variable                                   | Value                                         |
+   | ------------------------------------------ | --------------------------------------------- |
+   | `BASE_URL`                                 | `https://<your-domain>`, no trailing slash    |
+   | `AUTH_SECRET`                              | `openssl rand -base64 32`                     |
+   | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | from the GitHub OAuth app                     |
+   | `DATABASE_URL`                             | internal URL of a Coolify PostgreSQL resource |
+
+3. **Deploy**. `migrate` and `piston-setup` run once and exit; `app` waits for the migration to
+   finish before it starts.
+
+Why this file differs from `compose.yml`, which stays as the local development file:
+
+|                 | `compose.yml` (local)                                    | `compose.coolify.yml`                                                                      |
+| --------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Postgres        | in the compose file, on `127.0.0.1:5432`                 | a Coolify database resource, so its scheduled backups cover it                             |
+| Ports           | published on the loopback, for `bun run dev` on the host | none: the proxy reaches `app:3000` over the compose network, and Piston is never published |
+| Env             | `env_file: .env`                                         | `${VAR:?}` references the resource owns                                                    |
+| Container names | fixed, which is convenient locally                       | unset: Coolify names containers, and fixed names collide across environments               |
+| Runtimes        | `bun run piston:setup` by hand                           | a one-shot `piston-setup` service, idempotent, every deploy                                |
+
+Things that bite on Coolify specifically:
+
+- **Register a second OAuth app.** GitHub OAuth apps accept one callback URL, so production needs an
+  app whose callback is `https://<your-domain>/api/auth/callback/github`. A GitHub App instead allows
+  several callback URLs.
+- **Keep Piston on the internal network.** It authenticates nobody and runs privileged containers, so
+  it gets no domain and no published port — the app reaches it at `http://piston:2000`.
+- **Leave the app at one replica.** Coolify can scale a compose service, but the change feed, the rate
+  limiters and the feed cap are in-memory: a second replica would silently split the room.
+- **The live feed is one long-lived response.** If viewers get disconnected on a schedule, that is the
+  proxy's idle timeout, not the app: raise it on the Coolify proxy.
+- **Enable Coolify's scheduled backup on the Postgres resource.** The only volume in the compose file
+  holds Piston's runtimes, which `piston-setup` can rebuild at any time.
 
 ### API reference
 
