@@ -1,6 +1,11 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      # Vite inlines the analytics id into the client bundle, so it is baked at build time, not read
+      # at startup: changing it means rebuilding. Empty builds no analytics at all.
+      args:
+        VITE_UMAMI_WEBSITE_ID: ${VITE_UMAMI_WEBSITE_ID:-}
     container_name: codecast-app
     restart: unless-stopped
     depends_on:

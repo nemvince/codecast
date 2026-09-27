@@ -99,15 +99,16 @@ bun run admin:grant you@example.com
 
 `bun` loads `.env` automatically, and the compose services take it as `env_file`.
 
-| Variable               | Required | Notes                                                                               |
-| ---------------------- | -------- | ----------------------------------------------------------------------------------- |
-| `DATABASE_URL`         | yes      | `postgresql://codecast:codecast@localhost:5432/codecast`                            |
-| `PISTON_URL`           | no       | Defaults to `http://localhost:2000`                                                 |
-| `AUTH_SECRET`          | yes      | Better Auth signing key — `openssl rand -base64 32`. Rotating it signs everyone out |
-| `BASE_URL`             | yes      | Public origin of this deployment. Drives the OAuth callback and `Secure` cookies    |
-| `GITHUB_CLIENT_ID`     | yes      | GitHub OAuth app                                                                    |
-| `GITHUB_CLIENT_SECRET` | yes      | GitHub OAuth app — never commit it                                                  |
-| `HOST` / `PORT`        | no       | Built server only; defaults to `0.0.0.0:3000`                                       |
+| Variable                | Required | Notes                                                                                                   |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | yes      | `postgresql://codecast:codecast@localhost:5432/codecast`                                                |
+| `PISTON_URL`            | no       | Defaults to `http://localhost:2000`                                                                     |
+| `AUTH_SECRET`           | yes      | Better Auth signing key — `openssl rand -base64 32`. Rotating it signs everyone out                     |
+| `BASE_URL`              | yes      | Public origin of this deployment. Drives the OAuth callback and `Secure` cookies                        |
+| `GITHUB_CLIENT_ID`      | yes      | GitHub OAuth app                                                                                        |
+| `GITHUB_CLIENT_SECRET`  | yes      | GitHub OAuth app — never commit it                                                                      |
+| `VITE_UMAMI_WEBSITE_ID` | no       | Umami analytics id. Inlined at **build** time, so changing it needs a rebuild; empty ships no analytics |
+| `HOST` / `PORT`         | no       | Built server only; defaults to `0.0.0.0:3000`                                                           |
 
 Configuration is read and validated on first use, not at boot: the server starts, and the first
 request that needs a value answers `500` while the log names what it wanted —

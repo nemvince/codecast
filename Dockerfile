@@ -1,18 +1,28 @@
 # Pinned to the bun the lockfile was resolved with; bump both together.
-FROM oven/bun:1.4.2-alpine AS build
+FROM oven/bun:1.4.2-alpine AS deps
 WORKDIR /app
 
 # Manifests first, so a source change does not reinstall the world.
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
+
+FROM deps AS build
+
+# Vite inlines `import.meta.env.VITE_*` into the bundles, so anything the client needs has to be here
+# at build time rather than in the runtime environment. Empty (the default) simply ships no analytics.
+ARG VITE_UMAMI_WEBSITE_ID
+ENV VITE_UMAMI_WEBSITE_ID=${VITE_UMAMI_WEBSITE_ID}
+
 COPY . .
 RUN bun run build
 
-# Migrations run from here: this stage has the tooling, node_modules and `drizzle/` that the runtime
-# image deliberately does not. `--bun` is required — the runtime image has no `node` to run
+
+# Tasks run from here — migrations and `piston:setup`. It takes the dependencies and the sources but
+# skips the client build, which none of them need. `--bun` is required: this image has no `node` for
 # drizzle-kit's shebang. Declared before `runtime` so the app stays the default build target.
-FROM build AS migrate
+FROM deps AS migrate
+COPY . .
 CMD ["bun", "--bun", "drizzle-kit", "migrate"]
 
 
