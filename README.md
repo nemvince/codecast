@@ -1,4 +1,8 @@
-# CodeCast
+# CodeCast _(codecast)_
+
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+
+Live-coding classroom where students watch your code as you type and run their own copy.
 
 A live-coding classroom. The instructor starts a **cast**, shares its link or QR code, and everyone
 watching sees the code as it is typed. Any viewer can run their own copy of it beside the lesson —
@@ -15,22 +19,22 @@ that copy lives in their browser, so trying something can never overwrite what i
   are deleted seven days later, run history and all.
 - **Sign-in is for instructors** — GitHub OAuth through Better Auth. Viewers never need an account.
 
-## Screenshots
+## Table of Contents
 
-The instructor's cast — the code, its compile/run output, and the run history beside it:
+- [Background](#background)
+- [Install](#install)
+- [Usage](#usage)
+- [Deployment](#deployment)
+- [Screenshots](#screenshots)
+- [Adding a language](#adding-a-language)
+- [Buy me a coffee](#buy-me-a-coffee)
+- [Maintainers](#maintainers)
+- [Contributing](#contributing)
+- [License](#license)
 
-![The instructor's workspace: the cast's Python code, its stdout, and two runs in the history panel](docs/screenshots/instructor.png)
+## Background
 
-Everyone else follows the same code, and gets a private tab to run their own version of it in — the
-edits and the output stay on their device:
-
-![A student running their own version of the lesson in the "Your code" tab](docs/screenshots/student.png)
-
-The link is shared by QR code, so a classroom can scan its way in:
-
-![The share dialog showing a QR code and the cast link](docs/screenshots/share.png)
-
-## Stack
+### Stack
 
 | Piece    | Choice                                                                          |
 | -------- | ------------------------------------------------------------------------------- |
@@ -41,7 +45,7 @@ The link is shared by QR code, so a classroom can scan its way in:
 | Auth     | Better Auth, GitHub OAuth (admin plugin for roles and bans)                     |
 | Executor | self-hosted [Piston](https://github.com/engineer-man/piston)                    |
 
-## How it works
+### How it works
 
 A cast is a row: an 8-character slug (lowercase, minus look-alike letters), the code, the language
 and version, and an `expires_at`. The slug is the whole of the viewer's access — anyone with the link
@@ -64,13 +68,15 @@ What a client may ask for is bounded:
 | Code / stdin per request    | 100 kB / 10 kB                                    |
 | Cast lifetime               | 24 h, then kept for 7 days before deletion        |
 
-## Requirements
+## Install
+
+### Dependencies
 
 - [Bun](https://bun.sh) 1.4.2 or newer (the version in `engines` and in the Docker image)
 - Docker, for PostgreSQL and Piston
 - A GitHub OAuth app, for sign-in
 
-## Local setup
+### Setup
 
 ```bash
 docker compose up -d postgres piston   # Postgres 18 and Piston, on the loopback
@@ -114,7 +120,7 @@ Configuration is read and validated on first use, not at boot: the server starts
 request that needs a value answers `500` while the log names what it wanted —
 `Invalid environment: AUTH_SECRET: Invalid input: …`. Check the log before blaming the proxy.
 
-### Scripts
+## Usage
 
 | Command                              | What it does                                           |
 | ------------------------------------ | ------------------------------------------------------ |
@@ -268,6 +274,21 @@ The app documents itself: `/api` serves the reference UI, `/api/spec.json` the O
 `/api/auth/reference` the auth endpoints. Authentication in the spec is the Better Auth session
 cookie, the same one the app's own requests carry.
 
+## Screenshots
+
+The instructor's cast — the code, its compile/run output, and the run history beside it:
+
+![The instructor's workspace: the cast's Python code, its stdout, and two runs in the history panel](docs/screenshots/instructor.png)
+
+Everyone else follows the same code, and gets a private tab to run their own version of it in — the
+edits and the output stay on their device:
+
+![A student running their own version of the lesson in the "Your code" tab](docs/screenshots/student.png)
+
+The link is shared by QR code, so a classroom can scan its way in:
+
+![The share dialog showing a QR code and the cast link](docs/screenshots/share.png)
+
 ## Adding a language
 
 1. Add it to `LANGUAGES` in `src/lib/languages.ts` — id, label, Piston package, file name, and the
@@ -279,6 +300,17 @@ cookie, the same one the app's own requests carry.
 ## Buy me a coffee
 
 If my work is useful to you, please consider [buying me a coffee.](https://www.buymeacoffee.com/nemvince).
+
+## Maintainers
+
+- Tamás Vince ([@nemvince](https://github.com/nemvince))
+
+## Contributing
+
+Questions and bug reports go to the [issue
+tracker](https://github.com/nemvince/codecast/issues). Pull requests are welcome
+— run `bun run check`, `bun run lint` and the tests before opening one, and add
+the language to `LANGUAGES` (plus a pinned version) when extending support.
 
 ## License
 
